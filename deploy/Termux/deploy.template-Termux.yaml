@@ -1,0 +1,73 @@
+Deploy:
+  Git:
+    # URL of AzurLaneAutoScript repository
+    Repository: https://github.com/LmeSzinc/AzurLaneAutoScript
+    Branch: master
+    # 容器内 git 路径（ubuntu22 + apt 安装的 git）
+    GitExecutable: /usr/bin/git
+    GitProxy: null
+    SSLVerify: true
+    # 关闭自动更新：手机上是本地改造过的副本，自动 git pull 会把移植补丁冲掉
+    AutoUpdate: false
+
+  Python:
+    # 直接用容器自带的系统 Python（/usr/bin/python3.10），不建 venv。
+    # 原因：Ubuntu 22.04 上 python3.10 -m venv 建出来的 venv 里没有 pip，
+    # ensurepip 会报 CalledProcessError（pip-22.0.2 wheel 与 setuptools 版本冲突），
+    # 装 python3-pip-whl / python3-setuptools-whl 也救不回来。
+    # 容器本身就是隔离环境，全局装没有副作用。
+    PythonExecutable: /usr/bin/python3.10
+    # 注意：填清华源会被 deploy/config.py 自动改写成阿里源，这里直接写阿里源
+    PypiMirror: https://mirrors.aliyun.com/pypi/simple
+    # 关闭启动时自动装依赖：requirements-android.txt 已经由 20-install-alas.sh 装好，
+    # 开着会让 pip 反复动 mxnet/numpy，必崩
+    InstallDependencies: false
+    RequirementsFile: ./deploy/Termux/requirements-android.txt
+
+  Adb:
+    # ubuntu22 的 adb（1.0.41），连本机 adbd 的 127.0.0.1:5555
+    AdbExecutable: /usr/bin/adb
+    # 手机上没有任何模拟器需要替换，必须关掉
+    ReplaceAdb: false
+    # 关闭暴力连接：真机只有一个 serial，避免去乱连 5555/62001/7555 等端口
+    AutoConnect: false
+    # u2 的 ATX 服务必须用 root 预装（见 10-phone-adb.sh 的 u2 一节）：
+    # MIUI/HyperOS 会拦 adb install，报 INSTALL_FAILED_USER_RESTRICTED。
+    # 预装好之后这里要关掉，否则 ALAS 启动时还会用 adb install 去重装、必然失败。
+    InstallUiautomator2: false
+
+  Ocr:
+    # 单实例运行，不开 OCR 服务；多开时可改成 true 省内存
+    UseOcrServer: false
+    StartOcrServer: false
+    OcrServerPort: 22268
+    OcrClientAddress: 127.0.0.1:22268
+
+  Update:
+    # 关闭 web 上的更新/重载功能，避免误触后重启失败
+    EnableReload: false
+    CheckUpdateInterval: 0
+    AutoRestartTime: null
+
+  Misc:
+    DiscordRichPresence: false
+
+  RemoteAccess:
+    EnableRemoteAccess: false
+    SSHUser: null
+    SSHServer: null
+    SSHExecutable: ssh
+
+  Webui:
+    # 手机外面用另一台设备的浏览器访问 http://<手机局域网IP>:22267
+    WebuiHost: 0.0.0.0
+    WebuiPort: 22267
+    Language: zh-CN
+    Theme: default
+    # 手机屏幕小，DPI 缩放会让界面挤出屏幕
+    DpiScaling: false
+    Password: null
+    CDN: false
+    Run: null
+    WebuiSSLKey: null
+    WebuiSSLCert: null

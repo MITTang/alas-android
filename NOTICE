@@ -1,0 +1,34 @@
+AzurLaneAutoScript — 安卓移植修改版
+==================================
+
+本仓库包含对下列作品的修改（GPL-3.0 第 5 条要求的显著修改声明）：
+
+    原作：AzurLaneAutoScript (ALAS)
+    作者：LmeSzinc 及上游贡献者
+    来源：https://github.com/LmeSzinc/AzurLaneAutoScript
+    基线提交：1ed81ba（ALAS 0.4.13）
+    许可：GNU General Public License v3.0
+
+本仓库不是上游官方仓库，也未获上游认可或背书。修改由本仓库维护者完成，
+并同样以 GPL-3.0 发布（全文见 LICENSE）。再分发时必须保留本文件及其中的来源信息。
+
+修改内容（相对基线提交 1ed81ba）
+--------------------------------
+1. 新增 deploy/Termux/：在手机 Termux + proot-distro(Ubuntu 22.04 arm64) 中运行 ALAS 的
+   整套部署与运维脚本 —— 环境安装、adbd 开机自启、720x1280/293dpi 适配、启动/停止、
+   热重载、配置读写 CLI（alas_config.py / c_config.sh）、更新（alas_update.py）。
+2. 新增 deploy/AndroidGui/：不用 gradle、手写 Java 的安卓控制台（单 Activity、iOS 深色
+   风格、侧滑抽屉、控制台/任务/参数/更新四页），构建链为 aapt2 + d8 + apksigner。
+3. 新增 alas_cli.py、deploy/launcher/Alas-gui.bat、module/device/screen_adapt.py。
+4. 修改 module/device/control.py、module/device/screenshot.py、module/webui/fastapi.py，
+   以适配手机端截图/触摸与容器内 WebUI。
+5. 新增 deploy/Termux/alas_hot.py 等运行期补丁：任务热切换、Scheduler.NextRun 类型兜底、
+   停止时进程清理（绝对路径 pgrep/pkill）。
+
+未包含在仓库中的内容
+--------------------
+- 运行产物与个人数据：log/、config/alas.json 等本机配置、账号与令牌
+- APK 构建产物（*.apk / *.idsig）与签名密钥（deploy/AndroidGui/debug.keystore）
+- 第三方二进制（toolkit/、Alas.exe）
+
+本项目仅用于学习与个人自用。使用前请自行确认所使用账号与游戏服务条款的合规性。

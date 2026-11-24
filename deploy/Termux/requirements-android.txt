@@ -1,0 +1,79 @@
+# =============================================================================
+# Android / aarch64 专用依赖清单
+# 目标环境：Termux + proot-distro Ubuntu 22.04 + Python 3.10
+#
+# 与仓库根目录 requirements.txt 的差异（以及为什么）：
+#   * numpy  1.16.6 -> 1.23.5    ：3.10 上 1.16 无法安装；1.23.5 仍是
+#                                 numpy<1.24，保留了 np.float/np.int 等旧别名，
+#                                 mxnet / cnocr 都能正常跑。
+#   * scipy  1.4.1  -> 1.10.1    ：module/island 用了 scipy.optimize.milp（1.9+）。
+#   * opencv-python -> opencv-python-headless 4.10.0.84
+#                                ：4.5.3.56 没有 cp310 轮子；4.10 是 abi3 轮子，
+#                                 aarch64 直接装，不需要编译 OpenCV。
+#   * av            已删除        ：ALAS 代码里没有任何 import av（仅旧依赖残留），
+#                                 删掉可以省掉 ffmpeg 编译。
+#   * mxnet         1.6.0 -> 改用 binss 编译的 aarch64 轮子（自带 libmxnet.so），
+#                                 见 20-install-alas.sh，不在本文件里。
+#   * alas-webapp / pywin32      ：Windows 专用，必须删除。
+#   * websockets 必须装（10.0）  ：它看起来像 uvicorn 的可选件、删掉会在启动时报
+#                                 RuntimeError: Missing dependency package 'websockets'
+#                                 并让 uvicorn 直接崩掉。watchfiles 才是真的可选。
+#   * cnocr 必须单独装           ：cnocr 1.2.2 硬 pin numpy<1.20.0，与本文件的
+#                                 numpy==1.23.5 冲突会导致 ResolutionImpossible。
+#                                 流程：先 grep -v '^cnocr' 装其余 → 再
+#                                 pip install --no-deps cnocr==1.2.2
+#   * 绝对不要装 gluoncv 的依赖树：它会把 numpy 顶到 2.x、scipy 顶到 1.15、
+#                                 并拖进 opencv-python 5.x 和 pandas，全部与
+#                                 numpy 1.23 的 ABI 不兼容。
+#
+# 以下版本均已实测在 PyPI 上存在 manylinux aarch64 轮子（cp310）。
+# =============================================================================
+
+# ---- 图像处理 ----
+numpy==1.23.5
+scipy==1.10.1
+opencv-python-headless==4.10.0.84
+pillow==9.5.0
+imageio==2.27.0
+
+# ---- 设备连接 ----
+adbutils==0.11.0
+uiautomator2==2.16.17
+uiautomator2cache==0.3.0.1
+# lxml 是 uiautomator2 的依赖（ALAS 的 module/device/app_control.py 也直接 import），显式写上
+lxml
+# wrapt 原锁 1.13.1，但该版本没有 cp310 aarch64 轮子（1.14+ 才有），放开版本
+wrapt
+retrying
+lz4==4.3.2
+psutil
+
+# ---- 工具 ----
+rich==11.2.0
+tqdm
+jellyfish==0.11.2
+pyyaml
+inflection
+pydantic==1.10.13
+aiofiles
+prettytable==2.2.1
+anyio==1.3.1
+
+# ---- 推送 ----
+onepush==1.4.0
+pycryptodome
+pypresence==4.2.1
+
+# ---- OCR（mxnet 单独装，见脚本）----
+# 注意：不能放进批量安装！cnocr 1.2.2 硬 pin numpy<1.20.0，会和上面的 numpy==1.23.5
+# 冲突。安装命令里先 grep -v '^cnocr' 过滤掉，再单独 --no-deps 装。
+cnocr==1.2.2
+
+# ---- WebUI ----
+pywebio==1.6.2
+starlette==0.14.2
+uvicorn==0.17.6
+websockets==10.0
+zerorpc==0.6.3
+pyzmq==22.3.0
+gevent==21.12.0
