@@ -117,6 +117,22 @@ COMMON = [
      ["keep_exp_days", "calculate", "prevent_green_face", "prevent_red_face"]),
     ("主线", "主线挂机", "Main.Scheduler.Enable", None),
 
+    # ---- 活动图（对应 PC 端 WebUI 里的 Event 任务）----
+    # PC 端活动图不是「填 16-4」，而是两件事：选活动 + 选这个活动里的第几张图。
+    # 活动关卡随版本变化（A1~D3 是老式，T1~T6 / HT 是新式），所以「打哪一关」
+    # 的候选必须跟着上面选的「当前活动」动态扫，不能写死。
+    ("活动图", "当前活动", "Event.Campaign.Event", "EVENTS"),
+    ("活动图", "打哪一关", "Event.Campaign.Name", "EVENT_STAGE"),
+    ("活动图", "关卡难度", "Event.Campaign.Mode", ["normal", "hard"]),
+    ("活动图", "周回次数", "Event.StopCondition.RunCount", None),
+    ("活动图", "石油下限", "Event.StopCondition.OilLimit", None),
+    ("活动图", "停刷条件", "Event.StopCondition.MapAchievement",
+     ["non_stop", "100_percent_clear", "map_3_stars", "threat_safe",
+      "threat_safe_without_3_stars"]),
+    ("活动图", "自动寻敌", "Event.Campaign.UseAutoSearch", None),
+    ("活动图", "连续作战", "Event.Campaign.UseClearMode", None),
+    ("活动图", "活动挂机", "Event.Scheduler.Enable", None),
+
     ("日常收菜", "收石油", "Reward.Reward.CollectOil", None),
     ("日常收菜", "收金币", "Reward.Reward.CollectCoin", None),
     ("日常收菜", "收经验", "Reward.Reward.CollectExp", None),
@@ -177,11 +193,13 @@ def _scan_events():
     """
     活动图的合法值就是 campaign/ 下除 campaign_main 以外的目录名
     （event_20231221_cn 这种），同样走扫描，避免写死过期活动。
+    倒序排列：最新的活动排最前，玩家基本只用最新的那个。
     """
-    out = ["campaign_main"]
+    out = []
     try:
-        for n in sorted(os.listdir(os.path.join(BASE, "campaign"))):
-            if n.startswith("event_") and os.path.isdir(os.path.join(BASE, "campaign", n)):
+        root = os.path.join(BASE, "campaign")
+        for n in sorted(os.listdir(root), reverse=True):
+            if n.startswith("event_") and os.path.isdir(os.path.join(root, n)):
                 out.append(n)
     except OSError:
         pass
@@ -191,18 +209,74 @@ def _scan_events():
 # 事件图（活动）入口
 EVENT_CHAPTERS = _scan_events()
 
+# 活动图关卡名的排序，按玩家习惯：A → B → C → D → T → HT → TS → SP
+_STAGE_PREFIX_ORDER = {"a": 1, "b": 2, "c": 3, "d": 4, "t": 5, "ht": 6, "ts": 7, "sp": 8}
 
-def options_for(path, options):
+
+def _stage_sort_key(name):
+    m = re.match(r"(ht|ts|sp|a|b|c|d|t)(\d*)", name)
+    if not m:
+        return (99, 0, name)
+    prefix, num = m.group(1), m.group(2)
+    return (_STAGE_PREFIX_ORDER.get(prefix, 99), int(num) if num else 0)
+
+
+def _scan_event_stages(event):
+    """
+    某个活动里 ALAS 真正带了地图文件的关卡 = 该活动目录下的 .py 文件名。
+
+    这是「照 PC 端移植」的关键：不同活动的关卡结构完全不一样 ——
+    老活动是 A1~A3 / B1~B3 / C1~C3 / D1~D3 + SP，
+    2024-12 之后的新活动改成 T1~T6 + HT1~HT4（困难）+ SP。
+    如果手机端不管活动是什么都按主线那样填 16-4，或者按老经验填 D3，
+    ALAS 就会 `Map file not found` 直接 RequestHumanTakeover —— 表现就是
+    「活动图跑不了」，其实是关卡名和这个活动的目录对不上。
+
+    返回大写名（A1 / D3 / SP / T1），ALAS 内部用 to_map_file_name 自动转小写。
+    """
+    if not event or event == "campaign_main":
+        return CHAPTERS
+    folder = os.path.join(BASE, "campaign", event)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    stages = []
+    for n in names:
+        if not n.endswith(".py"):
+            continue
+        base = n[:-3]
+        if base in ("campaign_base", "__init__", "assets"):
+            continue
+        if not re.match(r"(sp|a|b|c|d|t|ht|ts)\d*$", base):
+            continue
+        stages.append(base)
+    stages.sort(key=_stage_sort_key)
+    return [s.upper() for s in stages]
+
+
+def options_for(d, path, options):
     """
     把 COMMON 里声明的候选展开成真正的列表。
 
-    特殊值 "CHAPTER" 表示「关卡图」，用静 CHAPTERS。
-    其余 None 表示自由输入（数字/字符串），返回 None 让 APP 弹输入框。
+    特殊值：
+      "CHAPTER"    主线关卡，扫 campaign_main 生成
+      "EVENTS"     活动名，扫 campaign/event_* 生成
+      "EVENT_STAGE"活动关卡，跟着「当前选的活动」动态生成 ——
+                   这个必须是动态的，写死一份就没法覆盖 T 图和 ABCD 图两种活动。
+    其余 None 表示自由输入，返回 None 让 APP 弹输入框。
     """
     if options is None:
         return None
     if options == "CHAPTER":
         return CHAPTERS
+    if options == "EVENTS":
+        # 活动在前（最常用），campaign_main 放最后 —— 它表示「这个任务去跑主线」
+        return EVENT_CHAPTERS + ["campaign_main"]
+    if options == "EVENT_STAGE":
+        # 取不到当前活动（比如 Event 块结构变了）就退回主线列表，不给空数组，
+        # 空数组会让 APP 弹一个没有任何选项的选择框，看着像坏了
+        return _scan_event_stages(safe_get(d, "Event.Campaign.Event")) or CHAPTERS
     if isinstance(options, list):
         return options
     return None
@@ -228,7 +302,7 @@ def common(d):
             continue
         item = {"group": group, "name": name, "path": path,
                 "value": val, "type": type(val).__name__}
-        o = options_for(path, opts)
+        o = options_for(d, path, opts)
         if o:
             item["options"] = o
         out.append(item)
@@ -399,9 +473,7 @@ def leaf_zh(path):
 # dump（按任务块浏览）时的枚举候选，key 同样是块内相对路径。
 # 和 COMMON 的那一份分开写，因为这里要覆盖到每个块自己的枚举字段。
 DUMP_OPTIONS = {
-    "Campaign.Name": CHAPTERS,
     "Campaign.Mode": ["normal", "hard"],
-    "Campaign.Event": ["campaign_main", "event_20231221_cn"],
     "StopCondition.MapAchievement":
         # 取自 argument.yaml 的真实枚举，别再用 stop_when_finished /
         # stop_when_all_cleared 那两个旧值：它们是 ALAS 老版本的写法，
@@ -438,7 +510,25 @@ DUMP_OPTIONS = {
 }
 
 
-def dump_options(path):
+MAIN_STAGE_RE = re.compile(r"\d{1,2}[-_]\d")
+
+
+def dump_options(block, path, d=None):
+    """
+    按任务块给候选：主线块列主线章节，活动块列「当前活动」里真实存在的关卡。
+
+    原来这里是「一份候选给所有块」，结果在 Event 块里也能选到 16-4 ——
+    而那活动根本没有 16-4，选中就等于让 ALAS 必然失败。
+    """
+    if path == "Campaign.Name":
+        if block in ("Main", "Main2", "Main3"):
+            return CHAPTERS
+        if block in ("Event", "Event2", "GemsFarming"):
+            event = safe_get(d, block + ".Campaign.Event") if d else None
+            return _scan_event_stages(event) or CHAPTERS
+        return None
+    if path == "Campaign.Event":
+        return EVENT_CHAPTERS + ["campaign_main"]
     return DUMP_OPTIONS.get(path)
 
 
@@ -564,6 +654,62 @@ def set_path(d, path, raw):
     return old, val
 
 
+def check_stage(d, path, raw):
+    """
+    写「打哪一关」之前先核对：这个名字在目标任务/活动里到底有没有地图文件。
+
+    为什么必须拦：ALAS 找不到地图文件时是 RequestHumanTakeover 直接中止，
+    日志里只有一行 Map file not found —— 用户看到的就是「点了开始，什么都没发生」。
+    在写入时就拦下来并列出这个活动真正支持的关卡，比让他跑一次失败再翻日志好得多。
+    """
+    if not path.endswith(".Campaign.Name"):
+        return
+    block = path.split(".")[0]
+    name = str(raw).strip().upper().replace(" ", "")
+    if MAIN_STAGE_RE.match(name):
+        return  # 16-4 / 12_4 这种主线写法，交给 ALAS 自己处理
+    event = safe_get(d, block + ".Campaign.Event") or "campaign_main"
+    stages = _scan_event_stages(event)
+    if not stages:
+        die("找不到活动 %s 的关卡，活动名对吗？可用活动：%s"
+            % (event, ", ".join(EVENT_CHAPTERS) or "（没有扫到任何活动目录）"))
+    # B-1 / b.1 这种写法 ALAS 自己会归一成 b1，这里一起归一后再比对
+    norm = re.sub(r"[-\s.]", "", name)
+    if norm not in stages:
+        if event == "campaign_main":
+            die("%s 是主线任务，只认 16-4 这种章节号；活动图请改「活动图」分组里的"
+                "打哪一关（那条会跟着活动动态列关卡）" % block)
+        die("活动 %s 里没有 %s。它支持：%s" % (event, raw, ", ".join(stages)))
+
+
+def fix_stage_on_event_change(d, path, raw):
+    """
+    换活动时把「打哪一关」一起修好。
+
+    A1~D3 和 T1~T6 是两套完全不同的关卡体系，只改活动名不改关卡名，
+    留下的就是一个必定失败、但看起来完全正常的配置。与其等用户踩，
+    不如换活动时顺手把不存在的关卡改成新活动的第一张图，并在结果里说明。
+    """
+    if not path.endswith(".Campaign.Event"):
+        return None
+    block = path.split(".")[0]
+    if block not in ("Event", "Event2", "GemsFarming"):
+        return None
+    stages = _scan_event_stages(str(raw).strip())
+    if not stages:
+        die("找不到活动 %s 的关卡，活动名对吗？可用活动：%s"
+            % (raw, ", ".join(EVENT_CHAPTERS)))
+    cur = safe_get(d, block + ".Campaign.Name")
+    cur_s = str(cur).strip().upper().replace(" ", "")
+    if cur_s in stages:
+        return None
+    new = stages[0]
+    if block not in d or "Campaign" not in d[block]:
+        return None
+    d[block]["Campaign"]["Name"] = new
+    return "%s 换到 %s 后没有 %s，已自动改成 %s" % (block, raw, cur, new)
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -597,7 +743,7 @@ def main():
             zh = leaf_zh(k)
             if zh:
                 row["zh"] = zh
-            opts = dump_options(k)
+            opts = dump_options(blk, k, d)
             if opts:
                 row["options"] = opts
             out.append(row)
@@ -635,10 +781,14 @@ def main():
         # normalize_time 写成当前时间。别的字段留空是没有意义的，仍然报错。
         if not raw.strip() and not path.endswith("NextRun"):
             die("用法: set <Dotted.Path> <value>")
+        check_stage(d, path, raw)
         old, val = set_path(d, path, raw)
+        note = fix_stage_on_event_change(d, path, val)
         write(d)
-        print(json.dumps({"ok": True, "path": path, "old": old, "new": val},
-                         ensure_ascii=False, default=str))
+        out = {"ok": True, "path": path, "old": old, "new": val}
+        if note:
+            out["note"] = note
+        print(json.dumps(out, ensure_ascii=False, default=str))
         return 0
 
     if op == "reset":
